@@ -1,0 +1,1 @@
+SELECT * FROM pending_notifications WHERE status = 'pending';
