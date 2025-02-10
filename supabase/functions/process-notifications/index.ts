@@ -23,14 +23,14 @@ serve(async (req) => {
     // Initialize Resend
     const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
 
-    // Get pending notifications
+    // Get pending notifications with explicit join
     const { data: notifications, error: fetchError } = await supabaseClient
       .from('pending_notifications')
       .select(`
         id,
         email,
         project_id,
-        gift_projects (
+        project:project_id (
           recipient_name,
           invite_code
         )
@@ -47,7 +47,7 @@ serve(async (req) => {
     for (const notification of notifications) {
       try {
         const baseUrl = 'https://giftle.stackblitz.io'; // TODO: Make configurable
-        const inviteUrl = `${baseUrl}/join/${notification.gift_projects.invite_code}`;
+        const inviteUrl = `${baseUrl}/join/${notification.project.invite_code}`;
 
         // Send email
         const { data: emailData, error: emailError } = await resend.emails.send({
@@ -55,7 +55,7 @@ serve(async (req) => {
           to: notification.email,
           subject: 'You\'ve been invited to a Giftle project!',
           html: `
-            You've been invited to help choose a gift for ${notification.gift_projects.recipient_name}!
+            You've been invited to help choose a gift for ${notification.project.recipient_name}!
             <br><br>
             Click here to join: <a href="${inviteUrl}">${inviteUrl}</a>
             <br><br>

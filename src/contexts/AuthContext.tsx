@@ -25,26 +25,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session.user);
         ensureProfile(session.user);
       } else {
-        setUser(null);
+        handleNoSession();
       }
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'TOKEN_REFRESHED') {
-        // Token was refreshed successfully
         if (session?.user) {
           setUser(session.user);
           ensureProfile(session.user);
         }
       } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
-        setUser(null);
-        navigate('/');
+        handleNoSession();
       } else if (session?.user) {
         setUser(session.user);
         ensureProfile(session.user);
       } else {
-        setUser(null);
+        handleNoSession();
       }
     });
 
@@ -52,6 +50,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, [navigate]);
+
+  const handleNoSession = () => {
+    setUser(null);
+    // Clear all auth data
+    localStorage.removeItem('sb-zqedbnnolhizvogksovc-auth-token');
+    sessionStorage.removeItem('sb-zqedbnnolhizvogksovc-auth-token');
+  };
 
   const ensureProfile = async (user: User) => {
     try {
@@ -75,26 +80,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    navigate('/dashboard');
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email, 
+        password,
+        options: {
+          persistSession: true
+        }
+      });
+      
+      if (error) throw error;
+      
+      if (!data?.session) {
+        throw new Error('No session returned after sign in');
+      }
+      
+      navigate('/dashboard');
+    } catch (error) {
+      handleNoSession();
+      throw error;
+    }
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: {
+            email
+          }
+        }
+      });
+      if (error) throw error;
+    } catch (error) {
+      handleNoSession();
+      throw error;
+    }
   };
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      setUser(null);
+      handleNoSession();
+      
+      await supabase.auth.signOut();
+      
       navigate('/');
     } catch (error) {
-      console.error('Error signing out:', error);
-      // Force clear the session if there's an error
-      setUser(null);
+      console.warn('Error during sign out:', error);
+      handleNoSession();
       navigate('/');
     }
   };

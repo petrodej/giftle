@@ -1,0 +1,80 @@
+-- First, clean up any existing duplicates (keep the most recent one)
+DELETE FROM project_members a
+WHERE EXISTS (
+  SELECT 1
+  FROM project_members b
+  WHERE b.project_id = a.project_id
+  AND b.email = a.email
+  AND b.joined_at > a.joined_at
+);
+
+-- Add unique constraint for project members
+ALTER TABLE project_members
+  DROP CONSTRAINT IF EXISTS project_members_project_email_unique;
+
+ALTER TABLE project_members
+  ADD CONSTRAINT project_members_project_email_unique 
+  UNIQUE (project_id, email);
+
+-- Create trigger function to prevent email conflicts
+CREATE OR REPLACE FUNCTION check_member_email_conflicts()
+RETURNS TRIGGER AS $$
+DECLARE
+  user_email text;
+BEGIN
+  -- If we're updating user_id and it's not null
+  IF TG_OP = 'UPDATE' AND NEW.user_id IS NOT NULL THEN
+    -- Get the user's email
+    SELECT email INTO user_email
+    FROM auth.users 
+    WHERE id = NEW.user_id
+    LIMIT 1;
+
+    IF user_email IS NOT NULL THEN
+      -- Update email field
+      NEW.email := user_email;
+    END IF;
+  END IF;
+
+  -- For both INSERT and UPDATE, check for duplicates
+  IF EXISTS (
+    SELECT 1 
+    FROM project_members
+    WHERE project_id = NEW.project_id 
+    AND email = NEW.email
+    AND (
+      TG_OP = 'INSERT' 
+      OR 
+      (TG_OP = 'UPDATE' AND project_members.email != OLD.email)
+    )
+  ) THEN
+    -- Instead of error, update the existing record
+    IF TG_OP = 'INSERT' THEN
+      -- Update the existing record with new data
+      UPDATE project_members 
+      SET 
+        user_id = COALESCE(NEW.user_id, project_members.user_id),
+        status = CASE 
+          WHEN project_members.status = 'pending' AND NEW.status = 'active' 
+          THEN 'active' 
+          ELSE project_members.status 
+        END
+      WHERE project_id = NEW.project_id 
+      AND email = NEW.email;
+      
+      RETURN NULL; -- Prevents the INSERT
+    END IF;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS check_member_email_conflicts ON project_members;
+
+-- Create trigger
+CREATE TRIGGER check_member_email_conflicts
+  BEFORE INSERT OR UPDATE ON project_members
+  FOR EACH ROW
+  EXECUTE FUNCTION check_member_email_conflicts();

@@ -32,97 +32,120 @@ export default function InviteMembersModal({ projectId, inviteCode, isOpen, onCl
         return;
       }
 
-      // Get existing users
-      const { data: profiles, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, email')
-        .in('email', emailList);
+      // Get project details for the email
+      const { data: project, error: projectError } = await supabase
+        .from('gift_projects')
+        .select('recipient_name')
+        .eq('id', projectId)
+        .single();
 
-      if (profileError) {
-        throw new Error(`Failed to fetch profiles: ${profileError.message}`);
-      }
+      if (projectError) throw projectError;
 
-      // Create a map of email to user id
-      const emailToUserId = new Map(
-        profiles?.map(profile => [profile.email, profile.id]) || []
-      );
+      // Send emails and create member records in parallel
+      const results = await Promise.all(emailList.map(async (email) => {
+        try {
+          // Create member record first
+          const { error: memberError } = await supabase
+            .from('project_members')
+            .upsert({
+              project_id: projectId,
+              email: email,
+              role: 'member',
+              status: 'pending'
+            }, {
+              onConflict: 'project_id,email',
+              ignoreDuplicates: true
+            });
 
-      // Prepare member entries
-      const memberEntries = emailList.map(email => ({
-        project_id: projectId,
-        user_id: emailToUserId.get(email) || null,
-        email: email,
-        role: 'member',
-        status: emailToUserId.get(email) ? 'active' : 'pending'
-      }));
+          if (memberError) throw memberError;
 
-      // Insert all members
-      const { error: memberError } = await supabase
-        .from('project_members')
-        .upsert(memberEntries, {
-          onConflict: 'project_id,email',
-          ignoreDuplicates: true
-        });
+          // Construct invite URL with email parameter
+          const inviteUrl = `${window.location.origin}/join/${inviteCode}?email=${encodeURIComponent(email)}`;
 
-      if (memberError) {
-        throw new Error(`Failed to add members: ${memberError.message}`);
-      }
-
-      // Get the current session for authentication
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        throw new Error(`Authentication error: ${sessionError.message}`);
-      }
-      
-      if (!session) {
-        throw new Error('No active session found');
-      }
-
-      try {
-        // Call the Edge Function to process notifications immediately
-        const response = await fetch(
-          'https://zqedbnnolhizvogksovc.supabase.co/functions/v1/process-notifications',
-          {
+          // Send email via Edge Function
+          const response = await fetch(`${supabase.supabaseUrl}/functions/v1/send-email`, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${session.access_token}`,
-              'Content-Type': 'application/json'
-            }
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabase.supabaseKey}`
+            },
+            body: JSON.stringify({
+              to: email,
+              subject: 'You\'ve been invited to a Giftle project!',
+              html: `
+                You've been invited to help choose a gift for ${project.recipient_name}!
+                <br><br>
+                Click here to join: <a href="${inviteUrl}">${inviteUrl}</a>
+                <br><br>
+                If you don't have a Giftle account yet, you'll be able to create one when you click the link.
+              `
+            })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to send email');
           }
-        );
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+          const result = await response.json();
+
+          // Log successful email send
+          await supabase
+            .from('pending_notifications')
+            .insert({
+              email,
+              project_id: projectId,
+              status: 'sent',
+              processed_at: new Date().toISOString(),
+              metadata: {
+                email_id: result.data?.id,
+                subject: 'You\'ve been invited to a Giftle project!'
+              }
+            });
+
+          return { email, success: true };
+        } catch (error) {
+          console.error('Error sending invitation to', email, ':', error);
+          
+          // Log failed attempt
+          await supabase
+            .from('pending_notifications')
+            .insert({
+              email,
+              project_id: projectId,
+              status: 'failed',
+              processed_at: new Date().toISOString(),
+              error_message: error instanceof Error ? error.message : 'Unknown error'
+            });
+
+          return { email, success: false, error };
         }
+      }));
 
-        const result = await response.json();
-        if (!result.success) {
-          throw new Error(result.error || 'Failed to process notifications');
-        }
+      // Show results to user
+      const successful = results.filter(r => r.success);
+      const failed = results.filter(r => !r.success);
 
-        toast.success(`Invitations sent to ${emailList.length} Giftler${emailList.length > 1 ? 's' : ''}`);
-      } catch (notifyError) {
-        console.error('Error sending invitations:', notifyError instanceof Error ? notifyError.message : 'Unknown error');
-        // Still show success since members were added, but show error for notifications
-        toast.success(`${emailList.length} Giftler${emailList.length > 1 ? 's' : ''} added successfully`);
-        toast.error('Email notifications could not be sent');
+      if (successful.length > 0) {
+        toast.success(`Invitations sent to ${successful.length} Giftler${successful.length > 1 ? 's' : ''}`);
+      }
+      if (failed.length > 0) {
+        toast.error(`Failed to send ${failed.length} invitation${failed.length > 1 ? 's' : ''}`);
       }
 
       setEmails('');
       onClose();
-
     } catch (error) {
-      console.error('Error inviting Giftlers:', error instanceof Error ? error.message : 'Unknown error');
-      toast.error(error instanceof Error ? error.message : 'Failed to send invitations');
+      console.error('Error inviting Giftlers:', error);
+      toast.error('Failed to send invitations');
     } finally {
       setLoading(false);
     }
   };
 
   const copyInviteLink = () => {
-    const inviteLink = `${window.location.origin}/join/${inviteCode}`;
+    // Don't include email parameter in the copied link since it's a generic invite
+    const inviteLink = `${window.location.origin}/join/${encodeURIComponent(inviteCode)}`;
     navigator.clipboard.writeText(inviteLink);
     toast.success('Invite link copied to clipboard!');
   };

@@ -10,6 +10,7 @@ interface Member extends Profile {
   role: string;
   status: 'active' | 'pending';
   email: string;
+  joined_at: string;
 }
 
 interface Props {
@@ -24,6 +25,7 @@ interface MemberQueryResult {
   role: string;
   status: 'active' | 'pending';
   email: string;
+  joined_at: string;
   profiles: {
     id: string;
     email: string;
@@ -74,6 +76,7 @@ export default function MembersList({ projectId, onMembersChange, onInviteClick,
           role,
           status,
           email,
+          joined_at,
           profiles:user_id (
             id,
             email,
@@ -96,6 +99,7 @@ export default function MembersList({ projectId, onMembersChange, onInviteClick,
         avatar_url: m.profiles?.avatar_url || null,
         role: m.role,
         status: m.status,
+        joined_at: m.joined_at,
         created_at: m.profiles?.created_at || new Date().toISOString(),
         updated_at: m.profiles?.updated_at || new Date().toISOString()
       }));
@@ -160,12 +164,14 @@ export default function MembersList({ projectId, onMembersChange, onInviteClick,
       </div>
       <div className="space-y-3">
         {members.map((member) => {
-          const memberKey = member.id || member.email;
           const isCurrentUser = user?.id === member.id;
           const canRemove = isAdmin && !isCurrentUser && member.role !== 'admin';
           
           return (
-            <div key={memberKey} className="flex items-center space-x-3 group">
+            <div 
+              key={`${member.email}-${member.joined_at}-${member.id || 'pending'}`} 
+              className="flex items-center space-x-3 group"
+            >
               <div className="flex-shrink-0">
                 {member.avatar_url ? (
                   <img
