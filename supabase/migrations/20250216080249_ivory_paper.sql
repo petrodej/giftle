@@ -1,0 +1,32 @@
+-- Drop existing policies for gift_projects
+DROP POLICY IF EXISTS "View projects" ON gift_projects;
+DROP POLICY IF EXISTS "Access via invite" ON gift_projects;
+
+-- Create comprehensive project visibility policy
+CREATE POLICY "View projects"
+  ON gift_projects FOR SELECT
+  TO authenticated
+  USING (
+    -- User is the creator
+    created_by = auth.uid()
+    OR 
+    -- User is a member (by user_id or email)
+    EXISTS (
+      SELECT 1 
+      FROM project_members pm
+      WHERE pm.project_id = id
+      AND (
+        pm.user_id = auth.uid()
+        OR pm.email = auth.email()
+      )
+    )
+  );
+
+-- Create policy for anonymous access via invite code
+CREATE POLICY "Access via invite"
+  ON gift_projects FOR SELECT
+  TO anon, authenticated
+  USING (true);  -- Allow all reads, we'll filter by invite code in the query
+
+-- Ensure proper permissions
+GRANT SELECT ON gift_projects TO anon, authenticated;
