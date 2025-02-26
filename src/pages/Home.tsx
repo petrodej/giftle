@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom';
+import CreateProjectFlow from '../components/CreateProjectFlow';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Home() {
+  const { user } = useAuth();
+
   return (
     <div className="bg-white">
       {/* Hero Section */}
@@ -23,20 +27,21 @@ export default function Home() {
               Create gift projects, invite friends, and make someone's special day even more memorable.
               Organize group gifts effortlessly with our collaborative platform.
             </p>
-            <div className="mt-10 flex items-center justify-center gap-x-6">
-              <Link
-                to="/register"
-                className="rounded-md bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-              >
-                Get started
-              </Link>
-              <Link
-                to="/login"
-                className="text-sm font-semibold leading-6 text-gray-900"
-              >
-                Already have an account? <span aria-hidden="true">→</span>
-              </Link>
-            </div>
+            
+            {user ? (
+              <div className="mt-10">
+                <Link
+                  to="/dashboard"
+                  className="rounded-md bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                >
+                  Go to Dashboard
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-10">
+                <CreateProjectFlow />
+              </div>
+            )}
           </div>
         </div>
 

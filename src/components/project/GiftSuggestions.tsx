@@ -44,14 +44,12 @@ export default function GiftSuggestions({
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-semibold text-gray-900">Gift Suggestions</h2>
-        {!votingClosed && (
-          <button
-            onClick={onAddSuggestion}
-            className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Add Suggestion
-          </button>
-        )}
+        <button
+          onClick={onAddSuggestion}
+          className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+        >
+          Add Suggestion
+        </button>
       </div>
 
       {showAISuggestions && project.interests.length > 0 && (

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import toast from 'react-hot-toast';
+import type { PendingNotification } from '../types/database';
 
 export async function sendEmail(to: string, subject: string, html: string) {
   try {
@@ -48,6 +49,7 @@ export async function processNotifications() {
         id,
         email,
         project_id,
+        status,
         metadata,
         project:gift_projects!pending_notifications_project_id_fkey (
           recipient_name,
@@ -64,7 +66,7 @@ export async function processNotifications() {
     const results = [];
 
     // Process each notification
-    for (const notification of notifications) {
+    for (const notification of notifications as unknown as PendingNotification[]) {
       try {
         const baseUrl = window.location.origin;
         const inviteUrl = `${baseUrl}/join/${notification.project.invite_code}`;

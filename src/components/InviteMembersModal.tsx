@@ -12,26 +12,50 @@ interface Props {
 }
 
 export default function InviteMembersModal({ projectId, inviteCode, isOpen, onClose }: Props) {
-  const [emails, setEmails] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emails, setEmails] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const handleAddEmail = () => {
+    if (!emailInput) {
+      setEmailError('Please enter an email address');
+      return;
+    }
+
+    if (!validateEmail(emailInput)) {
+      setEmailError('Please enter a valid email address');
+      return;
+    }
+
+    if (emails.includes(emailInput)) {
+      setEmailError('This email has already been added');
+      return;
+    }
+
+    setEmails(prev => [...prev, emailInput]);
+    setEmailInput('');
+    setEmailError('');
+  };
+
+  const handleRemoveEmail = (email: string) => {
+    setEmails(prev => prev.filter(e => e !== email));
+  };
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!emails.trim()) return;
+    if (emails.length === 0) {
+      setEmailError('Please add at least one email address');
+      return;
+    }
 
     setLoading(true);
     try {
-      // Split and clean email addresses
-      const emailList = emails
-        .split(/[,;\n]/) // Split by comma, semicolon, or newline
-        .map(email => email.toLowerCase().trim())
-        .filter(email => email && email.includes('@')); // Basic validation
-
-      if (emailList.length === 0) {
-        toast.error('Please enter valid email addresses');
-        return;
-      }
-
       // Get project details for the email
       const { data: project, error: projectError } = await supabase
         .from('gift_projects')
@@ -42,7 +66,7 @@ export default function InviteMembersModal({ projectId, inviteCode, isOpen, onCl
       if (projectError) throw projectError;
 
       // Send emails and create member records in parallel
-      const results = await Promise.all(emailList.map(async (email) => {
+      const results = await Promise.all(emails.map(async (email) => {
         try {
           // Create member record first
           const { error: memberError } = await supabase
@@ -62,62 +86,30 @@ export default function InviteMembersModal({ projectId, inviteCode, isOpen, onCl
           // Construct invite URL with email parameter
           const inviteUrl = `${window.location.origin}/join/${inviteCode}?email=${encodeURIComponent(email)}`;
 
-          // Send email via Edge Function
-          const response = await fetch(`${supabase.supabaseUrl}/functions/v1/send-email`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${supabase.supabaseKey}`
-            },
-            body: JSON.stringify({
-              to: email,
-              subject: 'You\'ve been invited to a Giftle project!',
-              html: `
-                You've been invited to help choose a gift for ${project.recipient_name}!
-                <br><br>
-                Click here to join: <a href="${inviteUrl}">${inviteUrl}</a>
-                <br><br>
-                If you don't have a Giftle account yet, you'll be able to create one when you click the link.
-              `
-            })
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to send email');
-          }
-
-          const result = await response.json();
-
-          // Log successful email send
-          await supabase
+          // Create notification record
+          const { error: notifyError } = await supabase
             .from('pending_notifications')
             .insert({
               email,
               project_id: projectId,
-              status: 'sent',
-              processed_at: new Date().toISOString(),
+              status: 'pending',
               metadata: {
-                email_id: result.data?.id,
-                subject: 'You\'ve been invited to a Giftle project!'
+                subject: 'You\'ve been invited to a Giftle project!',
+                html: `
+                  You've been invited to help choose a gift for ${project.recipient_name}!
+                  <br><br>
+                  Click here to join: <a href="${inviteUrl}">${inviteUrl}</a>
+                  <br><br>
+                  If you don't have a Giftle account yet, you'll be able to create one when you click the link.
+                `
               }
             });
+
+          if (notifyError) throw notifyError;
 
           return { email, success: true };
         } catch (error) {
           console.error('Error sending invitation to', email, ':', error);
-          
-          // Log failed attempt
-          await supabase
-            .from('pending_notifications')
-            .insert({
-              email,
-              project_id: projectId,
-              status: 'failed',
-              processed_at: new Date().toISOString(),
-              error_message: error instanceof Error ? error.message : 'Unknown error'
-            });
-
           return { email, success: false, error };
         }
       }));
@@ -133,7 +125,7 @@ export default function InviteMembersModal({ projectId, inviteCode, isOpen, onCl
         toast.error(`Failed to send ${failed.length} invitation${failed.length > 1 ? 's' : ''}`);
       }
 
-      setEmails('');
+      setEmails([]);
       onClose();
     } catch (error) {
       console.error('Error inviting Giftlers:', error);
@@ -189,21 +181,51 @@ export default function InviteMembersModal({ projectId, inviteCode, isOpen, onCl
               </div>
 
               <form onSubmit={handleInvite} className="mt-6 space-y-6">
-                <div className="form-group">
-                  <label htmlFor="invite-emails" className="form-label">
-                    Email addresses
-                  </label>
-                  <textarea
-                    id="invite-emails"
-                    value={emails}
-                    onChange={(e) => setEmails(e.target.value)}
-                    className="form-textarea"
-                    rows={4}
-                    placeholder="Enter email addresses&#10;Separate multiple emails with commas, semicolons, or new lines"
-                  />
-                  <p className="form-hint">
-                    Recipients will be added as pending Giftlers until they join
-                  </p>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <input
+                        type="email"
+                        value={emailInput}
+                        onChange={(e) => {
+                          setEmailInput(e.target.value);
+                          setEmailError('');
+                        }}
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddEmail())}
+                        placeholder="Enter email address"
+                        className={`form-input w-full ${emailError ? 'border-red-300' : ''}`}
+                      />
+                      {emailError && (
+                        <p className="mt-1 text-sm text-red-600">{emailError}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddEmail}
+                      disabled={!emailInput}
+                      className="btn-secondary whitespace-nowrap"
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {emails.map((email) => (
+                      <div
+                        key={email}
+                        className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded-lg"
+                      >
+                        <span className="text-sm text-gray-700">{email}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEmail(email)}
+                          className="text-gray-400 hover:text-red-600"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-4">
@@ -216,10 +238,10 @@ export default function InviteMembersModal({ projectId, inviteCode, isOpen, onCl
                   </button>
                   <button
                     type="submit"
-                    disabled={loading || !emails.trim()}
+                    disabled={loading || emails.length === 0}
                     className="btn-primary"
                   >
-                    {loading ? 'Sending...' : 'Send Invitations'}
+                    Send Invitations
                   </button>
                 </div>
               </form>

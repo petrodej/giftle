@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 export default function Register() {
@@ -15,13 +16,22 @@ export default function Register() {
 
   // Get redirect URL and email from query parameters
   const searchParams = new URLSearchParams(location.search);
-  const redirectTo = searchParams.get('redirect') || '/login';
+  const redirectTo = searchParams.get('redirect') || '/dashboard';
   const emailParam = searchParams.get('email');
 
   // Get message from location state
   const locationState = location.state as { message?: string; email?: string } | null;
 
   useEffect(() => {
+    // Check for pending project data
+    const pendingProject = sessionStorage.getItem('pendingProject');
+    if (pendingProject) {
+      const projectData = JSON.parse(pendingProject);
+      if (projectData.emails?.length > 0) {
+        setEmail(projectData.emails[0]); // Use the first email as the registration email
+      }
+    }
+    
     // Set email from query parameter or location state
     if (emailParam) {
       setEmail(emailParam);
@@ -41,21 +51,72 @@ export default function Register() {
     setLoading(true);
 
     try {
-      await signUp(email, password);
-      toast.success('Registration successful! Please check your email.');
-      navigate('/login', {
-        state: {
-          message: 'Please check your email to confirm your account, then sign in.',
-          email: email
+      // Check if user exists first
+      const { data: { user: existingUser }, error: checkError } = await supabase.auth.getUser();
+      
+      if (existingUser) {
+        // User is already logged in, proceed with project creation if needed
+        const pendingProject = sessionStorage.getItem('pendingProject');
+        if (pendingProject) {
+          navigate('/projects/new', { state: { pendingProject: JSON.parse(pendingProject) } });
+        } else if (redirectTo.includes('/join/')) {
+          navigate(redirectTo);
+        } else {
+          navigate('/dashboard');
+        }
+        return;
+      }
+
+      // Sign up the user
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: { email }
         }
       });
+
+      if (signUpError) {
+        if (signUpError.message.includes('already registered')) {
+          // Redirect to login with the same parameters
+          navigate(`/login?redirect=${encodeURIComponent(redirectTo)}&email=${encodeURIComponent(email)}`, {
+            state: {
+              message: 'This email is already registered. Please sign in to continue.',
+              email
+            }
+          });
+          return;
+        }
+        throw signUpError;
+      }
+
+      if (!signUpData.user) {
+        throw new Error('No user data returned from signup');
+      }
+
+      // Check for pending project
+      const pendingProject = sessionStorage.getItem('pendingProject');
+      if (pendingProject) {
+        // Clear pending project data
+        sessionStorage.removeItem('pendingProject');
+        // Redirect to project creation with the stored data
+        navigate('/projects/new', { state: { pendingProject: JSON.parse(pendingProject) } });
+      } else if (redirectTo.includes('/join/')) {
+        navigate(redirectTo);
+      } else {
+        // Normal registration flow
+        toast.success('Registration successful!');
+        navigate('/login', {
+          state: {
+            email: email,
+            message: 'Registration successful! Please sign in to continue.'
+          }
+        });
+      }
     } catch (error: any) {
       console.error('Registration error:', error);
-      if (error?.message?.includes('already registered')) {
-        setError('This email is already registered. Please sign in instead.');
-      } else {
-        setError('Failed to create account. Please try again.');
-      }
+      setError('Failed to create account. Please try again.');
     } finally {
       setLoading(false);
     }

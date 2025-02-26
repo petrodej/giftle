@@ -4,9 +4,17 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import LoadingScreen from '../components/LoadingScreen';
-import type { Database } from '../types/supabase';
+import type { GiftProject } from '../types/database';
 
-type Project = Database['public']['Tables']['gift_projects']['Row'];
+interface ProjectData {
+  id: string;
+  recipient_name: string;
+  created_by: string;
+  project_date: string;
+  status: string;
+  invite_code: string;
+  completed_at: string | null;
+}
 
 export default function JoinProject() {
   const { inviteCode } = useParams<{ inviteCode: string }>();
@@ -18,7 +26,7 @@ export default function JoinProject() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [project, setProject] = useState<Project | null>(null);
+  const [project, setProject] = useState<GiftProject | null>(null);
   const [checkingEmail, setCheckingEmail] = useState(false);
 
   useEffect(() => {
@@ -29,16 +37,21 @@ export default function JoinProject() {
     }
 
     loadProjectDetails();
-  }, [inviteCode, user]);
+  }, [inviteCode]);
+
+  // Separate effect for handling join after project is loaded
+  useEffect(() => {
+    if (user?.email && project) {
+      handleJoin();
+    }
+  }, [user, project]);
 
   async function loadProjectDetails() {
     if (!inviteCode) return;
 
     try {
-      console.log('Looking up project with invite code:', inviteCode);
-
-      // First get the project details
-      const { data: projectData, error: projectError } = await supabase
+      // Get project details using invite code
+      const { data: projects, error: projectError } = await supabase
         .from('gift_projects')
         .select(`
           id,
@@ -49,30 +62,16 @@ export default function JoinProject() {
           invite_code,
           completed_at
         `)
-        .eq('invite_code', inviteCode)
-        .limit(1)
-        .maybeSingle();
+        .eq('invite_code', inviteCode);
 
-      if (projectError) {
-        console.error('Error loading project:', projectError);
-        setError('Unable to load project details. Please try again.');
-        return;
-      }
+      if (projectError) throw projectError;
 
-      console.log('Project lookup result:', projectData);
-
-      if (!projectData) {
-        // Try to get all projects to see if the code exists
-        const { data: allProjects } = await supabase
-          .from('gift_projects')
-          .select('invite_code')
-          .limit(10);
-
-        console.log('Available invite codes:', allProjects?.map(p => p.invite_code));
-        
+      if (!projects || projects.length === 0) {
         setError('This invite link is invalid. Please ask for a new invite link.');
         return;
       }
+
+      const projectData = projects[0] as ProjectData;
 
       // Check project status
       if (projectData.status === 'completed' || projectData.completed_at) {
@@ -80,123 +79,36 @@ export default function JoinProject() {
         return;
       }
 
-      setProject(projectData);
-
-      // If user is logged in, check if they're already a member
-      if (user) {
-        console.log('Checking membership for user:', user.id);
-
-        const { data: memberData, error: memberError } = await supabase
-          .from('project_members')
-          .select('status, role')
-          .eq('project_id', projectData.id)
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (memberError) {
-          console.error('Error checking membership:', memberError);
-          setError('Unable to verify membership status. Please try again.');
-          return;
-        }
-
-        console.log('Membership check result:', memberData);
-
-        if (memberData?.status === 'active') {
-          toast.success('You are already a member of this project');
-          navigate(`/projects/${projectData.id}`);
-          return;
-        }
-
-        // If user is logged in but not a member, join automatically
-        if (user.email) {
-          await handleJoin(user.email);
-          return;
-        }
-      }
-
-      // Check if email from URL is already a member
-      if (email) {
-        console.log('Checking membership for email:', email);
-
-        const { data: existingMember, error: memberError } = await supabase
-          .from('project_members')
-          .select('status')
-          .eq('project_id', projectData.id)
-          .eq('email', email)
-          .maybeSingle();
-
-        if (memberError) {
-          console.error('Error checking email membership:', memberError);
-        } else if (existingMember?.status === 'active') {
-          setError('This email is already a member of the project. Please sign in to access it.');
-          return;
-        }
-
-        console.log('Email membership check result:', existingMember);
-      }
-
+      setProject(projectData as GiftProject);
       setError(null);
     } catch (error) {
-      console.error('Error loading project:', error);
+      console.error('Error loading project details:', error);
       setError('Unable to load project details. Please try again.');
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleJoin(userEmail: string) {
-    if (!project) return;
+  async function handleJoin() {
+    if (!project || !user?.email) return;
 
     setJoining(true);
     try {
-      console.log('Attempting to join project:', project.id, 'with email:', userEmail);
+      // Call the join_project function
+      const { error: joinError } = await supabase.rpc('join_project', {
+        input_project_id: project.id,
+        input_invite_code: inviteCode
+      });
 
-      // Check for existing membership
-      const { data: existingMember, error: checkError } = await supabase
-        .from('project_members')
-        .select('*')
-        .eq('project_id', project.id)
-        .eq('email', userEmail)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-
-      console.log('Existing member check result:', existingMember);
-
-      if (existingMember) {
-        // Update existing member
-        const { error: updateError } = await supabase
-          .from('project_members')
-          .update({ 
-            status: 'active',
-            user_id: user?.id 
-          })
-          .eq('project_id', project.id)
-          .eq('email', userEmail);
-
-        if (updateError) throw updateError;
-
-        console.log('Updated existing member');
-      } else {
-        // Create new member
-        const { error: insertError } = await supabase
-          .from('project_members')
-          .insert({
-            project_id: project.id,
-            user_id: user?.id,
-            email: userEmail,
-            role: 'member',
-            status: 'active'
-          });
-
-        if (insertError) {
-          if (insertError.message.includes('duplicate')) {
-            throw new Error('You are already a member of this project');
-          }
-          throw insertError;
+      if (joinError) {
+        // Handle specific error cases
+        if (joinError.message.includes('Invalid project or invite code')) {
+          throw new Error('This invite link is no longer valid. Please ask for a new invite link.');
+        } else if (joinError.message.includes('User must be authenticated')) {
+          throw new Error('Please sign in to join this project.');
+        } else {
+          throw joinError;
         }
-
-        console.log('Created new member');
       }
 
       toast.success('Successfully joined the project!');
@@ -223,24 +135,14 @@ export default function JoinProject() {
 
     setCheckingEmail(true);
     try {
-      console.log('Checking if user exists with email:', submittedEmail);
-
-      // Check if user exists with this email
-      const { data: userData, error: userError } = await supabase
+      // Check if user exists by looking up their profile
+      const { data: profile } = await supabase
         .from('profiles')
         .select('id')
         .eq('email', submittedEmail)
         .maybeSingle();
 
-      if (userError) {
-        console.error('Error checking email:', userError);
-        toast.error('An error occurred. Please try again.');
-        return;
-      }
-
-      console.log('User lookup result:', userData);
-
-      if (userData) {
+      if (profile) {
         // User exists, redirect to login
         navigate(`/login?redirect=/join/${inviteCode}&email=${encodeURIComponent(submittedEmail)}`, {
           state: { 
@@ -258,7 +160,6 @@ export default function JoinProject() {
         });
       }
     } catch (error) {
-      console.error('Error checking email:', error);
       toast.error('An error occurred. Please try again.');
     } finally {
       setCheckingEmail(false);

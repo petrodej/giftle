@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import type { GiftProject, GiftSuggestion, Vote, Profile } from '../types/database';
@@ -11,7 +11,24 @@ import AddSuggestionModal from '../components/AddSuggestionModal';
 import ProjectHeader from '../components/project/ProjectHeader';
 import AdminActions from '../components/project/AdminActions';
 import GiftSuggestions from '../components/project/GiftSuggestions';
+import BudgetInfo from '../components/project/BudgetInfo';
 import { createRecurringProject } from '../lib/projectManager';
+
+interface MemberQueryResult {
+  user_id: string | null;
+  role: string;
+  status: 'active' | 'pending';
+  email: string;
+  joined_at: string;
+  profiles: {
+    id: string;
+    email: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    created_at: string;
+    updated_at: string;
+  } | null;
+}
 
 export default function ProjectDetails() {
   const { id } = useParams<{ id: string }>();
@@ -64,6 +81,7 @@ export default function ProjectDetails() {
           role,
           status,
           email,
+          joined_at,
           profiles:user_id (
             id,
             email,
@@ -78,15 +96,15 @@ export default function ProjectDetails() {
       if (memberError) throw memberError;
 
       // Transform member data
-      const profiles: Profile[] = memberData
+      const profiles: Profile[] = (memberData as unknown as MemberQueryResult[])
         .filter(m => m.profiles) // Only include members with profiles
         .map(m => ({
-          id: m.profiles.id,
-          email: m.profiles.email,
-          full_name: m.profiles.full_name,
-          avatar_url: m.profiles.avatar_url,
-          created_at: m.profiles.created_at,
-          updated_at: m.profiles.updated_at
+          id: m.profiles!.id,
+          email: m.profiles!.email,
+          full_name: m.profiles!.full_name,
+          avatar_url: m.profiles!.avatar_url,
+          created_at: m.profiles!.created_at,
+          updated_at: m.profiles!.updated_at
         }));
 
       setMembers(profiles);
@@ -385,7 +403,10 @@ export default function ProjectDetails() {
               project={project} 
               isAdmin={isAdmin}
               onUpdateInterests={handleUpdateInterests}
+              onProjectUpdate={setProject}
             />
+
+            <BudgetInfo project={project} />
 
             {isAdmin && project.status !== 'completed' && (
               <AdminActions

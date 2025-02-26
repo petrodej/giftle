@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(session.user);
           ensureProfile(session.user);
         }
-      } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+      } else if (event === 'SIGNED_OUT') {
         handleNoSession();
       } else if (session?.user) {
         setUser(session.user);
@@ -83,10 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ 
         email, 
-        password,
-        options: {
-          persistSession: true
-        }
+        password
       });
       
       if (error) throw error;

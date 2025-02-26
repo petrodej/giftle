@@ -104,7 +104,23 @@ export default function MembersList({ projectId, onMembersChange, onInviteClick,
         updated_at: m.profiles?.updated_at || new Date().toISOString()
       }));
 
-      setMembers(formattedMembers);
+      // Sort members: active first, then by role (admin first), then by name
+      const sortedMembers = formattedMembers.sort((a, b) => {
+        // First sort by status (active before pending)
+        if (a.status !== b.status) {
+          return a.status === 'active' ? -1 : 1;
+        }
+        // Then by role (admin before member)
+        if (a.role !== b.role) {
+          return a.role === 'admin' ? -1 : 1;
+        }
+        // Finally by name/email
+        const aName = a.full_name || a.email;
+        const bName = b.full_name || b.email;
+        return aName.localeCompare(bName);
+      });
+
+      setMembers(sortedMembers);
     } catch (error) {
       console.error('Error loading Giftlers:', error);
       toast.error('Failed to load Giftlers');
@@ -180,27 +196,35 @@ export default function MembersList({ projectId, onMembersChange, onInviteClick,
                     className="h-8 w-8 rounded-full"
                   />
                 ) : (
-                  <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center">
-                    <span className="text-sm font-medium text-gray-500">
+                  <div className={`
+                    h-8 w-8 rounded-full flex items-center justify-center
+                    ${member.status === 'pending' ? 'bg-yellow-100' : 'bg-gray-200'}
+                  `}>
+                    <span className={`
+                      text-sm font-medium
+                      ${member.status === 'pending' ? 'text-yellow-700' : 'text-gray-500'}
+                    `}>
                       {(member.full_name || member.email || '?')[0].toUpperCase()}
                     </span>
                   </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {member.full_name || member.email}
-                  {isCurrentUser && (
-                    <span className="ml-2 text-xs text-gray-500">(You)</span>
-                  )}
-                </p>
                 <div className="flex items-center space-x-2">
-                  <p className="text-xs text-gray-500 capitalize">{member.role}</p>
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {member.full_name || member.email}
+                  </p>
+                  {isCurrentUser && (
+                    <span className="text-xs text-gray-500">(You)</span>
+                  )}
                   {member.status === 'pending' && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
                       Pending
                     </span>
                   )}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <p className="text-xs text-gray-500 capitalize">{member.role}</p>
                 </div>
               </div>
               {canRemove && (

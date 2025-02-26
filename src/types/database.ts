@@ -66,3 +66,35 @@ export interface AIGiftSuggestion {
   url: string | null;
   confidence_score: number;
 }
+
+export interface MemberQueryResult {
+  user_id: string | null;
+  role: string;
+  status: 'active' | 'pending';
+  email: string;
+  joined_at: string;
+  profiles: {
+    id: string;
+    email: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    created_at: string;
+    updated_at: string;
+  } | null;
+}
+
+export interface PendingNotification {
+  id: string;
+  email: string;
+  project_id: string;
+  status: string;
+  metadata: {
+    from?: string;
+    subject: string;
+    html: string;
+  };
+  project: {
+    recipient_name: string;
+    invite_code: string;
+  };
+}

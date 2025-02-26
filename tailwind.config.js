@@ -12,6 +12,9 @@ export default {
       transitionDuration: {
         '200': '200ms',
       },
+      fontFamily: {
+        sans: ['Open Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
     },
   },
   plugins: [

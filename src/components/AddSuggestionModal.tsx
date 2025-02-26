@@ -26,15 +26,20 @@ export default function AddSuggestionModal({ projectId, isOpen, onClose, onSugge
     setLoading(true);
 
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
       const { data, error } = await supabase
         .from('gift_suggestions')
         .insert({
           project_id: projectId,
-          suggested_by: (await supabase.auth.getUser()).data.user?.id,
+          suggested_by: user.id,
           title: suggestion.title,
           description: suggestion.description,
           price: suggestion.price ? parseFloat(suggestion.price) : null,
           url: suggestion.url || null,
+          is_ai_generated: false
         })
         .select()
         .single();
@@ -46,6 +51,7 @@ export default function AddSuggestionModal({ projectId, isOpen, onClose, onSugge
       setSuggestion({ title: '', description: '', price: '', url: '' });
       onClose();
     } catch (error) {
+      console.error('Error adding suggestion:', error);
       toast.error('Failed to add suggestion');
     } finally {
       setLoading(false);

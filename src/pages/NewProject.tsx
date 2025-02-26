@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -7,9 +7,16 @@ import LoadingScreen from '../components/LoadingScreen';
 
 const DEFAULT_PER_PERSON_BUDGET = 20;
 
+interface PendingProject {
+  recipientName: string;
+  projectDate: string;
+  emails: string[];
+}
+
 export default function NewProject() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [recipientName, setRecipientName] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [projectDate, setProjectDate] = useState('');
@@ -19,6 +26,15 @@ export default function NewProject() {
   const [minBudget, setMinBudget] = useState(50);
   const [maxBudget, setMaxBudget] = useState(200);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Check for pending project data
+    const pendingProject = location.state?.pendingProject as PendingProject;
+    if (pendingProject) {
+      setRecipientName(pendingProject.recipientName);
+      setProjectDate(pendingProject.projectDate);
+    }
+  }, [location.state]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,22 +58,42 @@ export default function NewProject() {
           min_budget: budgetType === 'per_person' ? perPersonBudget : minBudget,
           max_budget: budgetType === 'per_person' ? perPersonBudget : maxBudget,
           budget_type: budgetType,
-          voting_closed: true, // Start with voting closed
+          voting_closed: false,
         })
         .select()
         .single();
 
       if (projectError) throw projectError;
 
+      // Add creator as admin
       const { error: memberError } = await supabase
         .from('project_members')
         .insert({
           project_id: project.id,
           user_id: user.id,
+          email: user.email,
           role: 'admin',
+          status: 'active'
         });
 
       if (memberError) throw memberError;
+
+      // Add pending members from the stored project data
+      const pendingProject = location.state?.pendingProject as PendingProject;
+      if (pendingProject?.emails?.length > 0) {
+        const { error: inviteError } = await supabase
+          .from('project_members')
+          .insert(
+            pendingProject.emails.map(email => ({
+              project_id: project.id,
+              email,
+              role: 'member',
+              status: 'pending'
+            }))
+          );
+
+        if (inviteError) throw inviteError;
+      }
 
       toast.success('Project created successfully!');
       navigate(`/projects/${project.id}`);
